@@ -3,4 +3,4 @@ data/test_set_task3
 data/training_set_task3
 .vscode/settings.json
 runs/test
-.vscode/settings.json
+__pycache__/
