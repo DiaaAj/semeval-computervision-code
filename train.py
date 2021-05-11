@@ -1,4 +1,5 @@
 import os
+import io
 
 import tqdm
 import yaml
@@ -23,14 +24,15 @@ from format_checker.task1_3 import read_classes
 from shutil import copyfile
 
 import boto3
+s3 = boto3.resource('s3')
 
 def main():
     # Hyper Parameters
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_epochs', default=20, type=int,
                         help='Number of training epochs.')
-    # parser.add_argument('--crop_size', default=224, type=int,
-    #                     help='Size of an image crop as the CNN input.')
+    parser.add_argument('--data_aug', default=True, type=bool,
+                         help='Size of an image crop as the CNN input.')
     parser.add_argument('--workers', default=10, type=int,
                         help='Number of data loader workers.')
     parser.add_argument('--log_step', default=10, type=int,
@@ -61,7 +63,7 @@ def main():
         if opt.cross_validation:
             # read splits from file
             with open('data/folds.json', 'r') as f:
-                folds = json.load(f)s
+                folds = json.load(f)
                 num_folds = len(folds)
             for fold in tqdm.trange(num_folds):
                 train(opt, config, val_fold=fold)
@@ -69,31 +71,25 @@ def main():
             metrics = {'f1-micro-val': 0, 
                     'f1-macro-val': 0,
                     'f1-micro-test': 0,
-                    'f1-macro-test': 0,
-                    'training_epochs_count': []}
+                    'f1-macro-test': 0}
             
             rng = 3
             for _ in range(rng):
-                val_metrics, test_metrics, count_epochs = train(opt, config, val_fold=0)
+                val_metrics, test_metrics = train(opt, config, val_fold=0)
                 metrics['f1-micro-val'] += val_metrics['microF1_thr=0.5']
                 metrics['f1-macro-val'] += val_metrics['macroF1_thr=0.5']
                 metrics['f1-micro-test'] += test_metrics['microF1_thr=0.5']
                 metrics['f1-macro-test'] += test_metrics['macroF1_thr=0.5']
-                metrics['training_epochs_count'].append(count_epochs)
                 
             metrics['f1-micro-val'] /= rng 
             metrics['f1-macro-val'] /= rng
             metrics['f1-micro-test'] /= rng
             metrics['f1-macro-test'] /= rng
             
-            s3 = boto3.resource('s3')
-            
             out_file = f"results/results_{config['image-model']['name']}_use_aug={config['training']['use_data_aug']}.json"
-            with open(out_file, 'w') as f:
-                json.dump([metrics,config], f)
+            json_object = json.dumps([metrics,config])
             
-            with open(out_file, 'rb') as data:
-                s3.Bucket('cv-experiments-results').put_object(Key=out_file, Body=data)
+            s3.Bucket('cv-experiments-results').put_object(Key=out_file, Body=json_object)
             
         print('DONE <3')
 
@@ -171,8 +167,6 @@ def train(opt, config, val_fold=0):
     if torch.cuda.is_available() and not (opt.resume or opt.load_model):
         model.cuda()
 
-
-
     # Construct the optimizer
     if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune']:
         optimizer = torch.optim.Adam([p for n, p in model.named_parameters() if 'textual_module' not in n and 'visual_module' not in n], lr=config['training']['lr'])
@@ -201,9 +195,6 @@ def train(opt, config, val_fold=0):
 
     # # optionally resume from a checkpoint
     start_epoch = 0
-    epochs_no_improve = 0
-    estop_patience = 4
-    count_epochs = 0
     # if opt.resume or opt.load_model:
     #     filename = opt.resume if opt.resume else opt.load_model
     #     if os.path.isfile(filename):
@@ -263,15 +254,14 @@ def train(opt, config, val_fold=0):
             tb_logger.add_scalar("Training/Learning_Rate", optimizer.param_groups[0]['lr'], global_iteration)
 
             if global_iteration % opt.val_step == 0:
+
                 # validate (using different thresholds)
                 metrics = validate(val_dataloader, model, classes, thresholds=[0.5])
                 tb_logger.add_scalars("Validation/F1", metrics, global_iteration)
                 print(metrics)
                 # progress_bar.set_postfix(dict(macroF1='{:.2}'.format(metrics['macroF1_thr=0.5']), microF1='{:.2}'.format(metrics['microF1_thr=0.5'])))
-
                 # save best model
                 if metrics['microF1_thr=0.5'] > best_f1:
-                    epochs_no_improve = 0
                     print('Saving best model...')
                     checkpoint = {
                         'cfg': config,
@@ -281,31 +271,28 @@ def train(opt, config, val_fold=0):
                         # 'scheduler': scheduler.state_dict()}
                     latest = os.path.join(experiment_path, 'model_best_fold{}.pt'.format(val_fold))
                     torch.save(checkpoint, latest)
-                    best_f1 = metrics['microF1_thr=0.5']
-                
-                else:
-                    epochs_no_improve += 1
                     
-                if(epochs_no_improve == estop_patience):
-                    print("Early stopping!")
-                    count_epochs = epoch
-                    break
-                
-            if(count_epochs):
-                break
+                    best_f1 = metrics['microF1_thr=0.5']
 
         scheduler.step()
     
     metrics_val = validate(val_dataloader, model, classes, thresholds=[0.5])
     metrics_test = validate(test_dataloader, model, classes, thresholds=[0.5])
+    
+    out_file = f"models/results_{config['image-model']['name']}_use_aug={config['training']['use_data_aug']}.json"
+ 
+    # buffer = io.BytesIO()
+    # torch.save(model, buffer)
+    # print("Uploading to s3 bucket....")
+    # s3.Bucket('cv-experiments-results').put_object(Key=out_file, Body=buffer.getvalue())
 
+        
     print("----------Finished training----------")
 
     print(metrics_val)
     print(metrics_test)
-    print(count_epochs)
     
-    return metrics_val, metrics_test, count_epochs
+    return metrics_val, metrics_test
     
     
 
