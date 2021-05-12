@@ -29,10 +29,12 @@ s3 = boto3.resource('s3')
 def main():
     # Hyper Parameters
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_epochs', default=20, type=int,
+    parser.add_argument('--num_epochs', default=40, type=int,
                         help='Number of training epochs.')
     parser.add_argument('--data_aug', default=True, type=bool,
                          help='Size of an image crop as the CNN input.')
+    parser.add_argument('--save_final_model', default=False, type=bool,
+                         help='Save the final model after training on all epochs')
     parser.add_argument('--workers', default=10, type=int,
                         help='Number of data loader workers.')
     parser.add_argument('--log_step', default=10, type=int,
@@ -74,8 +76,8 @@ def main():
                     'f1-macro-test': 0}
             
             rng = 3
-            for _ in range(rng):
-                val_metrics, test_metrics = train(opt, config, val_fold=0)
+            for i in range(rng):
+                val_metrics, test_metrics = train(opt, config, save_model = (i == 0 and opt.save_final_model), val_fold=0)
                 metrics['f1-micro-val'] += val_metrics['microF1_thr=0.5']
                 metrics['f1-macro-val'] += val_metrics['macroF1_thr=0.5']
                 metrics['f1-micro-test'] += test_metrics['microF1_thr=0.5']
@@ -93,7 +95,7 @@ def main():
             
         print('DONE <3')
 
-def train(opt, config, val_fold=0):
+def train(opt, config, val_fold=0,save_model=False):
     # torch.cuda.set_enabled_lms(True)
     # if (torch.cuda.get_enabled_lms()):
     #     torch.cuda.set_limit_lms(11000 * 1024 * 1024)
@@ -281,10 +283,11 @@ def train(opt, config, val_fold=0):
     
     out_file = f"models/results_{config['image-model']['name']}_use_aug={config['training']['use_data_aug']}.json"
  
-    # buffer = io.BytesIO()
-    # torch.save(model, buffer)
-    # print("Uploading to s3 bucket....")
-    # s3.Bucket('cv-experiments-results').put_object(Key=out_file, Body=buffer.getvalue())
+    if(save_model):
+        buffer = io.BytesIO()
+        torch.save(model, buffer)
+        print("Uploading to s3 bucket....")
+        s3.Bucket('cv-experiments-results').put_object(Key=out_file, Body=buffer.getvalue())
 
         
     print("----------Finished training----------")

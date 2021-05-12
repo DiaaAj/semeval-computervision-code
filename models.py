@@ -44,16 +44,24 @@ class EncoderImageCNN(nn.Module):
         return spatial_features
 
 
-class EncoderTextRoBERTa(nn.Module):
+class EncoderTextModel(nn.Module):
     def __init__(self, config):
         super().__init__()
-        robert_config = RobertaConfig.from_pretrained(config['text-model']['pretrain'],
-                                                 output_hidden_states=True,
-                                                 num_hidden_layers=config['text-model']['extraction-hidden-layer'])
-        robert_model = RobertaModel.from_pretrained(config['text-model']['pretrain'], config=robert_config)
+        
+        if(config['text-model']['name'] == 'roberta'):
+            robert_config = RobertaConfig.from_pretrained(config['text-model']['pretrain'],
+                                                    output_hidden_states=True,
+                                                    num_hidden_layers=config['text-model']['extraction-hidden-layer'])
+            self.model = RobertaModel.from_pretrained(config['text-model']['pretrain'], config=robert_config)
+            self.tokenizer = RobertaTokenizer.from_pretrained(config['text-model']['pretrain'], do_lower=True)
+        
+        elif(config['text-model']['name'] == 'bert'):
+            bert_config = BertConfig.from_pretrained(config['text-model']['pretrain'],
+                                                    output_hidden_states=True,
+                                                    num_hidden_layers=config['text-model']['extraction-hidden-layer'])
+            self.model = BertModel.from_pretrained(config['text-model']['pretrain'], config=bert_config)
+            self.tokenizer = BertTokenizer.from_pretrained(config['text-model']['pretrain'], do_lower=True)
 
-        self.tokenizer = RobertaTokenizer.from_pretrained(config['text-model']['pretrain'], do_lower=True)
-        self.robert_model = robert_model
 
     def forward(self, x, lengths):
         '''
@@ -66,7 +74,7 @@ class EncoderTextRoBERTa(nn.Module):
             e[l:] = 0
         attention_mask = attention_mask.to(x.device)
 
-        outputs = self.robert_model(x, attention_mask=attention_mask)
+        outputs = self.model(x, attention_mask=attention_mask)
         outputs = outputs[2][-1]
 
         return outputs
@@ -250,7 +258,7 @@ class MemeMultiLabelClassifier(nn.Module):
         self.visual_enabled = cfg['image-model']['enabled'] if 'enabled' in cfg['image-model'] else True
         if self.visual_enabled:
             self.visual_module = EncoderImageCNN(cfg)
-        self.textual_module = EncoderTextRoBERTa(cfg)
+        self.textual_module = EncoderTextModel(cfg)
         if cfg['model']['name'] == 'transformer-encoder' or cfg['model']['name'] == 'transformer':
             self.joint_processing_module = JointTransformerEncoder(cfg, labels)
         elif cfg['model']['name'] == 'dual-transformer':

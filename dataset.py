@@ -7,6 +7,7 @@ import json
 import os
 
 from transformers import RobertaTokenizer, BertTokenizer
+
 from format_checker.task1_3 import read_classes
 
 
@@ -103,6 +104,9 @@ class Collate:
         self.data_root = config['dataset']['root']
         if self.vocab_type == 'roberta':
             self.tokenizer = RobertaTokenizer.from_pretrained(config['text-model']['pretrain'], do_lower=True)
+        elif self.vocab_type == 'bert':
+            self.tokenizer = BertTokenizer.from_pretrained(config['text-model']['pretrain'], do_lower=True)
+        
         self.class_list = classes # read_classes('techniques_list_task3.txt')
 
     def __call__(self, data):

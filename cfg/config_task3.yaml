@@ -3,9 +3,11 @@ dataset:
   task: 3
 
 text-model:
-  name: 'roberta'
+  #name: 'bert'
+  name: roberta
   #pretrain: 'bert-base-uncased'
   pretrain: 'roberta-large'
+  #word-dim: 768
   word-dim: 1024
   extraction-hidden-layer: 10
   fine-tune: False
